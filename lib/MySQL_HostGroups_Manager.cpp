@@ -3186,6 +3186,7 @@ void MySQL_HostGroups_Manager::read_only_action(char *hostname, int port, int re
 	const char *Q3B=(char *)"DELETE FROM mysql_servers WHERE hostname='%s' AND port=%d AND hostgroup_id IN (SELECT reader_hostgroup FROM mysql_replication_hostgroups WHERE reader_hostgroup=mysql_servers.hostgroup_id)";
 	const char *Q4=(char *)"UPDATE OR IGNORE mysql_servers SET hostgroup_id=(SELECT reader_hostgroup FROM mysql_replication_hostgroups WHERE writer_hostgroup=mysql_servers.hostgroup_id) WHERE hostname='%s' AND port=%d AND hostgroup_id IN (SELECT writer_hostgroup FROM mysql_replication_hostgroups WHERE writer_hostgroup=mysql_servers.hostgroup_id)";
 	const char *Q5=(char *)"DELETE FROM mysql_servers WHERE hostname='%s' AND port=%d AND hostgroup_id IN (SELECT writer_hostgroup FROM mysql_replication_hostgroups WHERE writer_hostgroup=mysql_servers.hostgroup_id)";
+	const char *Q6=(char *)"SELECT hostname FROM mysql_servers WHERE hostgroup_id=(SELECT writer_hostgroup FROM mysql_replication_hostgroups)";
 	if (GloAdmin==NULL) {
 		return;
 	}
@@ -3207,6 +3208,7 @@ void MySQL_HostGroups_Manager::read_only_action(char *hostname, int port, int re
 	mydb->execute_statement(query, &error , &cols , &affected_rows , &resultset);
 	wrunlock();
 	int num_rows=0;
+	int writers_count=0;
 	if (resultset==NULL) {
 		goto __exit_read_only_action;
 	}
@@ -3218,6 +3220,17 @@ void MySQL_HostGroups_Manager::read_only_action(char *hostname, int port, int re
 		admindb=new SQLite3DB();
 		admindb->open((char *)"file:mem_admindb?mode=memory&cache=shared", SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX);	
 	}
+
+	// check if we have more then one server with read_only=0
+	wrlock();
+	mydb->execute_statement(Q6,&error,&cols,&affected_rows,&resultset);
+	wrunlock();
+	if (resultset==NULL) {
+		goto __exit_read_only_action;
+	}
+	writers_count=resultset->rows_count;
+	delete resultset;
+	resultset=NULL;
 
 	switch (read_only) {
 		case 0:
