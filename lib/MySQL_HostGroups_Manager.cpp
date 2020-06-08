@@ -3187,7 +3187,7 @@ void MySQL_HostGroups_Manager::read_only_action(char *hostname, int port, int re
 	const char *Q4=(char *)"UPDATE OR IGNORE mysql_servers SET hostgroup_id=(SELECT reader_hostgroup FROM mysql_replication_hostgroups WHERE writer_hostgroup=mysql_servers.hostgroup_id) WHERE hostname='%s' AND port=%d AND hostgroup_id IN (SELECT writer_hostgroup FROM mysql_replication_hostgroups WHERE writer_hostgroup=mysql_servers.hostgroup_id)";
 	const char *Q5=(char *)"DELETE FROM mysql_servers WHERE hostname='%s' AND port=%d AND hostgroup_id IN (SELECT writer_hostgroup FROM mysql_replication_hostgroups WHERE writer_hostgroup=mysql_servers.hostgroup_id)";
 	const char *Q6=(char *)"SELECT hostname FROM mysql_servers WHERE hostgroup_id=(SELECT writer_hostgroup FROM mysql_replication_hostgroups)";
-	const char *Q7=(char *)"DELETE FROM mysql_servers WHERE hostgroup_id=(SELECT writer_hostgroup FROM mysql_replication_hostgroups)";
+	const char *Q7=(char *)"UPDATE OR IGNORE mysql_servers SET hostgroup_id=(SELECT reader_hostgroup FROM mysql_replication_hostgroups WHERE writer_hostgroup=mysql_servers.hostgroup_id) WHERE hostgroup_id=(SELECT writer_hostgroup FROM mysql_replication_hostgroups)";
 	if (GloAdmin==NULL) {
 		return;
 	}
