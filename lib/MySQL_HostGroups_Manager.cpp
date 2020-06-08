@@ -3232,31 +3232,14 @@ void MySQL_HostGroups_Manager::read_only_action(char *hostname, int port, int re
 	writers_count=resultset->rows_count;
 	delete resultset;
 	resultset=NULL;
-	if (writers_count > 1) {
-		proxy_warning("Multiple hosts with read_only=OFF found. Removing all servers from the writer_hostgroup\n");
-		GloAdmin->mysql_servers_wrlock();
-		if (GloMTH->variables.hostgroup_manager_verbose) {
-			char *error2=NULL;
-			int cols2=0;
-			int affected_rows2=0;
-			admindb->execute_statement(Q7, &error2 , &cols2 , &affected_rows2 , &resultset);
-			if (error2) {
-				proxy_error("Error on DELETE FROM mysql_servers : %s\n", error2);
-			} else {
-				if (resultset) {
-					proxy_info("read_only_action delete all servers from writer_hostgroup : Dumping mysql_servers for %s:%d\n", hostname, port);
-					resultset->dump_to_stderr();
-				}
-			}
-			if (resultset) { delete resultset; resultset=NULL; }
-		}
-		GloAdmin->load_mysql_servers_to_runtime(); // LOAD MYSQL SERVERS TO RUNTIME
-		GloAdmin->mysql_servers_wrunlock();
-		goto __exit_read_only_action;
-	}
 
 	switch (read_only) {
 		case 0:
+			if (writers_count > 1) {
+				proxy_warning("Multiple hosts with read_only=OFF found. Removing all servers from the writer_hostgroup\n");
+				MyHGM->shun_and_killall(hostname, port);
+				goto __exit_read_only_action;
+			}
 			if (num_rows==0) {
 				// the server has read_only=0 , but we can't find any writer, so we perform a swap
 				GloAdmin->mysql_servers_wrlock();
