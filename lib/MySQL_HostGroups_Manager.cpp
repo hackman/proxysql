@@ -3236,7 +3236,25 @@ void MySQL_HostGroups_Manager::read_only_action(char *hostname, int port, int re
 	switch (read_only) {
 		case 0:
 			if (writers_count > 1) {
-				proxy_warning("Multiple hosts with read_only=OFF found. Removing all servers from the writer_hostgroup\n");
+				proxy_warning("Multiple(%d) hosts with read_only=OFF found. Removing all servers from the writer_hostgroup\n", writers_count);
+				char *error2=NULL;
+				int cols2=0;
+				int affected_rows2=0;
+				GloAdmin->mysql_servers_wrlock();
+				admindb->execute_statement(Q7, &error2 , &cols2 , &affected_rows2 , &resultset);
+
+				if (error2) {
+			        proxy_error("Error on DELETE FROM mysql_servers : %s\n", error2);
+				} else {
+			        if (resultset) {
+		                proxy_info("read_only_action delete all servers from writer_hostgroup : Dumping mysql_servers for %s:%d\n", hostname, port);
+			        }
+				}
+				GloAdmin->save_mysql_servers_runtime_to_database(false); // SAVE MYSQL SERVERS FROM RUNTIME
+				GloAdmin->load_mysql_servers_to_runtime(); // LOAD MYSQL SERVERS TO RUNTIME
+				GloAdmin->mysql_servers_wrunlock();
+
+				if (resultset) { delete resultset; resultset=NULL; }
 				MyHGM->shun_and_killall(hostname, port);
 				goto __exit_read_only_action;
 			}
