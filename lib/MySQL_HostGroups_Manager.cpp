@@ -3186,6 +3186,8 @@ void MySQL_HostGroups_Manager::read_only_action(char *hostname, int port, int re
 	const char *Q3B=(char *)"DELETE FROM mysql_servers WHERE hostname='%s' AND port=%d AND hostgroup_id IN (SELECT reader_hostgroup FROM mysql_replication_hostgroups WHERE reader_hostgroup=mysql_servers.hostgroup_id)";
 	const char *Q4=(char *)"UPDATE OR IGNORE mysql_servers SET hostgroup_id=(SELECT reader_hostgroup FROM mysql_replication_hostgroups WHERE writer_hostgroup=mysql_servers.hostgroup_id) WHERE hostname='%s' AND port=%d AND hostgroup_id IN (SELECT writer_hostgroup FROM mysql_replication_hostgroups WHERE writer_hostgroup=mysql_servers.hostgroup_id)";
 	const char *Q5=(char *)"DELETE FROM mysql_servers WHERE hostname='%s' AND port=%d AND hostgroup_id IN (SELECT writer_hostgroup FROM mysql_replication_hostgroups WHERE writer_hostgroup=mysql_servers.hostgroup_id)";
+	const char *Q6=(char *)"SELECT hostname FROM mysql_servers WHERE hostgroup_id=(SELECT writer_hostgroup FROM mysql_replication_hostgroups)";
+	const char *Q7=(char *)"UPDATE OR IGNORE mysql_servers SET hostgroup_id=(SELECT reader_hostgroup FROM mysql_replication_hostgroups WHERE writer_hostgroup=mysql_servers.hostgroup_id) WHERE hostgroup_id=(SELECT writer_hostgroup FROM mysql_replication_hostgroups)";
 	if (GloAdmin==NULL) {
 		return;
 	}
@@ -3207,6 +3209,7 @@ void MySQL_HostGroups_Manager::read_only_action(char *hostname, int port, int re
 	mydb->execute_statement(query, &error , &cols , &affected_rows , &resultset);
 	wrunlock();
 	int num_rows=0;
+	int writers_count=0;
 	if (resultset==NULL) {
 		goto __exit_read_only_action;
 	}
@@ -3219,8 +3222,42 @@ void MySQL_HostGroups_Manager::read_only_action(char *hostname, int port, int re
 		admindb->open((char *)"file:mem_admindb?mode=memory&cache=shared", SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX);	
 	}
 
+	// check if we have more then one server with read_only=0
+	wrlock();
+	mydb->execute_statement(Q6,&error,&cols,&affected_rows,&resultset);
+	wrunlock();
+	if (resultset==NULL) {
+		goto __exit_read_only_action;
+	}
+	writers_count=resultset->rows_count;
+	delete resultset;
+	resultset=NULL;
+
 	switch (read_only) {
 		case 0:
+			if (writers_count > 1) {
+				proxy_warning("Multiple(%d) hosts with read_only=OFF found. Removing all servers from the writer_hostgroup\n", writers_count);
+				char *error2=NULL;
+				int cols2=0;
+				int affected_rows2=0;
+				GloAdmin->mysql_servers_wrlock();
+				admindb->execute_statement(Q7, &error2 , &cols2 , &affected_rows2 , &resultset);
+
+				if (error2) {
+			        proxy_error("Error on DELETE FROM mysql_servers : %s\n", error2);
+				} else {
+			        if (resultset) {
+		                proxy_info("read_only_action delete all servers from writer_hostgroup : Dumping mysql_servers for %s:%d\n", hostname, port);
+			        }
+				}
+				GloAdmin->save_mysql_servers_runtime_to_database(false); // SAVE MYSQL SERVERS FROM RUNTIME
+				GloAdmin->load_mysql_servers_to_runtime(); // LOAD MYSQL SERVERS TO RUNTIME
+				GloAdmin->mysql_servers_wrunlock();
+
+				if (resultset) { delete resultset; resultset=NULL; }
+				MyHGM->shun_and_killall(hostname, port);
+				goto __exit_read_only_action;
+			}
 			if (num_rows==0) {
 				// the server has read_only=0 , but we can't find any writer, so we perform a swap
 				GloAdmin->mysql_servers_wrlock();
